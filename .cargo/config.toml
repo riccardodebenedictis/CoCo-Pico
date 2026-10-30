@@ -2,10 +2,14 @@
 runner = "probe-rs run --chip RP235x"
 
 rustflags = [
-  "-C", "linker=flip-link",
-  "-C", "link-arg=--nmagic",
-  "-C", "link-arg=-Tlink.x",
-  "-C", "link-arg=-Tdefmt.x",
+  "-C",
+  "linker=flip-link",
+  "-C",
+  "link-arg=--nmagic",
+  "-C",
+  "link-arg=-Tlink.x",
+  "-C",
+  "link-arg=-Tdefmt.x",
 ]
 
 [build]
@@ -13,3 +17,5 @@ target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "info"
+WIFI_SSID = "IlTuoSSID"
+WIFI_PASSWORD = "LaTuaPassword"

@@ -34,8 +34,8 @@ async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'sta
     runner.run().await
 }
 
-const WIFI_SSID: &str = "YOUR_WIFI_SSID";
-const WIFI_PASSWORD: &str = "YOUR_WIFI_PASSWORD";
+const WIFI_SSID: &str = env!("WIFI_SSID");
+const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
