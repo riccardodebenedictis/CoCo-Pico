@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use bosch_bme680::{AsyncBme680, Configuration, DeviceAddress};
 use cyw43::{JoinOptions, State, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
@@ -12,16 +13,18 @@ use embassy_rp::{
     clocks::RoscRng,
     dma,
     gpio::{Level, Output},
-    peripherals::{DMA_CH0, PIO0},
+    i2c::{self, I2c},
+    peripherals::{DMA_CH0, I2C1, PIO0},
     pio::{InterruptHandler, Pio},
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
+    I2C1_IRQ => i2c::InterruptHandler<I2C1>;
 });
 
 #[embassy_executor::task]
@@ -55,6 +58,20 @@ async fn main(spawner: Spawner) {
     let state = STATE.init(State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
     spawner.spawn(unwrap!(cyw43_task(runner)));
+
+    info!("Initializing I2C for BME680 sensor...");
+    let sda = p.PIN_6;
+    let scl = p.PIN_7;
+    let i2c = I2c::new_async(p.I2C1, scl, sda, Irqs, i2c::Config::default());
+
+    let mut bme = AsyncBme680::new(i2c, DeviceAddress::Primary, Delay, 20);
+    let bme_config = Configuration::default();
+
+    if let Err(e) = bme.initialize(&bme_config).await {
+        error!("Failed to initialize BME680 sensor: {:?}", Debug2Format(&e));
+    } else {
+        info!("BME680 sensor initialized successfully.");
+    }
 
     control.init(clm).await;
     control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
@@ -94,6 +111,16 @@ async fn main(spawner: Spawner) {
     loop {
         led_state = !led_state;
         control.gpio_set(0, led_state).await;
-        Timer::after(Duration::from_millis(500)).await;
+
+        match bme.measure().await {
+            Ok(data) => {
+                info!("Temperature: {} °C, Pressure: {} hPa, Humidity: {} %, Gas Resistance: {} Ω", data.temperature, data.pressure, data.humidity, data.gas_resistance);
+            }
+            Err(e) => {
+                error!("Failed to read from BME680 sensor: {:?}", Debug2Format(&e));
+            }
+        }
+
+        Timer::after(Duration::from_secs(2)).await;
     }
 }
