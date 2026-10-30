@@ -80,4 +80,20 @@ async fn main(spawner: Spawner) {
             }
         }
     }
+
+    info!("Waiting for an IP address...");
+    stack.wait_config_up().await;
+
+    if let Some(ipv4_addr) = stack.config_v4() {
+        info!("IP address acquired: {}", ipv4_addr.address);
+    } else {
+        error!("Failed to acquire an IP address.");
+    }
+
+    let mut led_state = false;
+    loop {
+        led_state = !led_state;
+        control.gpio_set(0, led_state).await;
+        Timer::after(Duration::from_millis(500)).await;
+    }
 }

@@ -17,5 +17,5 @@ target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "info"
-WIFI_SSID = "IlTuoSSID"
-WIFI_PASSWORD = "LaTuaPassword"
+WIFI_SSID = "ISTC_Floor_4"
+WIFI_PASSWORD = "Rmg!2024"
