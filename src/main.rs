@@ -1,17 +1,21 @@
 #![no_std]
 #![no_main]
 
-use cyw43::{State, aligned_bytes};
+use cyw43::{JoinOptions, State, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_net::{Config, StackResources};
 use embassy_rp::{
-    bind_interrupts, dma,
+    bind_interrupts,
+    clocks::RoscRng,
+    dma,
     gpio::{Level, Output},
     peripherals::{DMA_CH0, PIO0},
     pio::{InterruptHandler, Pio},
 };
+use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -22,6 +26,11 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::task]
 async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>>) -> ! {
+    runner.run().await
+}
+
+#[embassy_executor::task]
+async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>) -> ! {
     runner.run().await
 }
 
@@ -44,16 +53,31 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<State> = StaticCell::new();
     let state = STATE.init(State::new());
-    let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
     spawner.spawn(unwrap!(cyw43_task(runner)));
 
     control.init(clm).await;
     control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
 
-    let mut scanner = control.scan(Default::default()).await;
-    while let Some(bss) = scanner.next().await {
-        if let Ok(ssid_str) = str::from_utf8(&bss.ssid) {
-            info!("scanned {} == {:x}", ssid_str, bss.bssid);
+    let config = Config::dhcpv4(Default::default());
+    let seed = RoscRng.next_u64();
+
+    static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(net_device, config, RESOURCES.init(StackResources::new()), seed);
+    spawner.spawn(unwrap!(net_task(runner)));
+
+    loop {
+        info!("Joining Wi-Fi network...");
+        match control.join(WIFI_SSID, JoinOptions::new(WIFI_PASSWORD.as_bytes())).await {
+            Ok(_) => {
+                info!("Successfully joined Wi-Fi network!");
+                break;
+            }
+            Err(err) => {
+                error!("Failed to join Wi-Fi network: {:?}", err);
+                info!("Retrying in 2 seconds...");
+                Timer::after(Duration::from_secs(2)).await;
+            }
         }
     }
 }
